@@ -1,0 +1,113 @@
+---
+title: "Reproducible Research: Peer Assessment 1"
+author: "John Mitchell"
+date: "November 6, 2015"
+output: html_document
+---
+
+This is a project to do some basic data analysis of step data collected from smartphones over the course of several weeks. This assignment makes use of data from a personal activity monitoring device. This device collects data at 5 minute intervals through out the day. The data consists of two months of data from an anonymous individual collected during the months of October and November, 2012 and include the number of steps taken in 5 minute intervals each day. 
+
+### Initial Preparation
+Before the analysis can be completed, the packages that will be used are installed.
+
+```{r, message = FALSE }
+library(plyr); library(dplyr); library(ggplot2); library(stringr); library(lubridate); library(timeDate)
+```
+
+## Loading and preprocessing the data
+First, the data is downloaded and read into the local environment.
+```{r, cache = TRUE}
+fileURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+download.file(fileURL, destfile = "./activity.zip", method = "curl")
+dateDownloaded <- date()
+unzip("./activity.zip")
+data <- read.csv("./activity.csv", header = TRUE)
+```
+The data is structured with observations in 3 columns: steps, date, and interval.
+
+## What is mean total number of steps taken per day?
+1. Ignoring NA values, the total steps per day can be found by grouping and summarizing the data as follows:
+```{r}
+a <- data %>% group_by(date) %>% dplyr::summarise(tot_steps = sum(steps, na.rm = TRUE))
+a
+```
+
+2. A histogram will show the distribution of average steps per day. A normal distribution is present.
+```{r}
+qplot(tot_steps, data = a, ylab = "Count", xlab = "Total Steps", binwidth = 2000, main = "Histogram of Steps per Day")
+```
+
+3. The mean and median steps per day can be calculated and displayed
+```{r}
+mean(a$tot_steps)
+median(a$tot_steps)
+```
+
+## What is the average daily activity pattern?
+1. A time series plot will show the daily activity pattern, averaged across all days. This is created by grouping and sumamrizing the data by interval.
+```{r}
+b <- data %>% group_by(interval) %>% dplyr::summarise(avg_steps = mean(steps, na.rm = TRUE))
+qplot(interval, avg_steps, data = b, ylab = "Average Steps", xlab = "Interval", geom = "line", main = "Daily Activity Pattern")
+```
+
+2. The most active interval can be shown by sorting the interval averages in descending order.
+```{r}
+c <- b %>% arrange(desc(avg_steps))
+head(c, 5)
+```
+
+So we see that the interval "835" has the largest average number of steps at 206.17. This matches the value shown by the time series plot.
+
+
+## Imputing missing values
+1. Calculate and reporting the number of missing values can be done by using the sum function in conjunction with is.na:
+```{r}
+sum(is.na(data$steps))
+```
+
+2. A strategy to replace NA values is choosen: the means will be imputed by taking the average value of steps for each interval and applying it to each NA value. This seems to give the most accurate value, since times in the middle of the night will then contain low or zero values and measurements during active times will have higher values.
+
+3. A function is created that will replace a NA value with a mean of x. The  plyr package is used to calculate each x as the mean of values from the given interval. This new data set is labeled as dataFull and represents a complete data set with no NA values.
+```{r}
+impute.mean <- function(x) replace(x, is.na(x), mean(x, na.rm = TRUE))
+dataFull <- ddply(data, ~ interval, transform, steps = impute.mean(steps))
+```
+
+4. The dataFull data can then be grouped and summarized to give the total steps:
+```{r}
+d <- dataFull %>% arrange(date, interval) %>% group_by(date) %>% dplyr::summarize(tot_steps = sum(steps))
+```
+
+Those steps are plotted on a histogram:
+```{r}
+qplot(tot_steps, data = d, ylab = "Count", xlab = "Total Steps", binwidth = 2000, main = "Histogram of Steps per Day")
+```
+
+The mean and median values are calculated.
+```{r}
+mean(d$tot_steps)
+median(d$tot_steps)
+```
+By comparing them directly, we can see the change that imputing NA values created, creating a higher mean and median for the total steps.
+```{r}
+mean(a$tot_steps)
+mean(d$tot_steps)
+median(a$tot_steps)
+median(d$tot_steps)
+```
+
+## Are there differences in activity patterns between weekdays and weekends?
+1. To examine activity patterns between weekdays and weekends, a new factor variable is created identifying each day as a weekend or weekday.
+```{r}
+dataFull$date <- ymd(dataFull$date)
+dataFull$wk <- NA
+dataFull$wk <- as.factor(isWeekend(dataFull$date, wday = 1:5))
+levels(dataFull$wk) <- c("Weekday", "Weekend")
+```
+2. A panel plot is then created to compare the activity patterns between weekday and weekends. The dataFull needs to be filtered to give the appropriate summary.
+```{r}
+e <- dataFull %>% group_by(interval, wk) %>% dplyr::summarise(avg_steps = mean(steps, na.rm = TRUE))
+qplot(x = interval, y = avg_steps, data = e, geom = "line", facets = wk~., color = wk)
+```
+
+The plots show that the overall activity pattern is similar, with spikes in the early morning. The weekend, though, shows higher activity patterns throughout the day than the weekday.
